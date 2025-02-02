@@ -1,4 +1,4 @@
-# TeamSync-
+# TeamSync
 AI-Powered Daily Standup Bot
 📌 What It Does:
 
