@@ -1,0 +1,64 @@
+from flask import Flask, request, jsonify
+import os
+import sqlite3
+import openai  # Requires OpenAI API Key
+from datetime import datetime
+
+app = Flask(__name__)
+
+# Set up database
+DB_FILE = "standups.db"
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute('''CREATE TABLE IF NOT EXISTS standups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user TEXT,
+                    update TEXT,
+                    timestamp TEXT)
+                ''')
+    conn.commit()
+    conn.close()
+init_db()
+
+# Collect standup updates
+@app.route("/standup", methods=["POST"])
+def collect_update():
+    data = request.json
+    user, update = data.get("user"), data.get("update")
+    if not user or not update:
+        return jsonify({"error": "User and update are required."}), 400
+    
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("INSERT INTO standups (user, update, timestamp) VALUES (?, ?, ?)",
+                (user, update, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"message": "Update recorded!"})
+
+# Generate summary using OpenAI API
+@app.route("/summary", methods=["GET"])
+def generate_summary():
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("SELECT user, update FROM standups ORDER BY timestamp DESC LIMIT 10")
+    updates = cur.fetchall()
+    conn.close()
+    
+    if not updates:
+        return jsonify({"message": "No updates yet."})
+    
+    formatted_updates = "\n".join([f"{user}: {update}" for user, update in updates])
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role": "system", "content": "Summarize these standup updates succinctly."},
+                  {"role": "user", "content": formatted_updates}]
+    )
+    summary = response["choices"][0]["message"]["content"]
+    
+    return jsonify({"summary": summary})
+
+if __name__ == "__main__":
+    app.run(debug=True)
